@@ -15,6 +15,8 @@
 ///     |-------|----------|---------|-------|---------|
 ///     | 10.14 | 12.2     | 5.2     | NA    | NA      |
 ///
+import CEcho
+
 public protocol ContextDescriptor {
   /// Backing context descriptor pointer.
   var ptr: UnsafeRawPointer { get }

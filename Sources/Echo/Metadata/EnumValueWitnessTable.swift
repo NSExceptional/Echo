@@ -15,6 +15,8 @@
 ///     |-------|----------|---------|-------|---------|
 ///     | 10.14 | 12.2     | 5.2     | NA    | NA      |
 ///
+import CEcho
+
 public struct EnumValueWitnessTable: LayoutWrapper {
   typealias Layout = SignedPointer<ValueWitnessTable>
   
