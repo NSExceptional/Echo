@@ -11,7 +11,7 @@ let package = Package(
     )
   ],
   dependencies: [
-    .package(url: "https://github.com/apple/swift-atomics.git", from: "0.0.1")
+    .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.0")
   ],
   targets: [
     .target(
