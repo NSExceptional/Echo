@@ -7,3 +7,5 @@
 .build/
 .swiftpm/
 Package.resolved
+/Echo.xcodeproj
+/Project.swift
