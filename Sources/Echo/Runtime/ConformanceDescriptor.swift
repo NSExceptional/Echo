@@ -39,18 +39,22 @@ public struct ConformanceDescriptor: LayoutWrapper {
   /// The context descriptor of the type being conformed.
   public var contextDescriptor: TypeContextDescriptor? {
     let start = address(for: \._typeRef)
+    let ptr: UnsafeRawPointer?
     
     switch flags.typeReferenceKind {
     case .directTypeDescriptor:
-      let ptr = start.relativeDirectAddress(as: _ContextDescriptor.self)
-      return getContextDescriptor(at: ptr) as? TypeContextDescriptor
+      ptr = start.relativeDirectAddress(as: _ContextDescriptor.self)
     case .indirectTypeDescriptor:
-      var ptr = start.relativeDirectAddress(as: UnsafeRawPointer.self)
-      ptr = ptr.load(as: UnsafeRawPointer.self)
-      return getContextDescriptor(at: ptr) as? TypeContextDescriptor
+      ptr = start.relativeDirectAddress(as: UnsafeRawPointer?.self).load(as: UnsafeRawPointer?.self)
     default:
       return nil
     }
+    
+    if let ptr {
+      return getContextDescriptor(at: ptr) as? TypeContextDescriptor
+    }
+
+    return nil
   }
   
   /// The ObjectiveC class metadata of the type being conformed.
