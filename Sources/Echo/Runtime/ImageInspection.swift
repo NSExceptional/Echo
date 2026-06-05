@@ -140,8 +140,33 @@ var _types = Set<UnsafeRawPointer>()
 public func registerTypeMetadata(section: UnsafeRawPointer, size: Int) {
   for i in 0 ..< size / 4 {
     let start = section.offset(of: i, as: Int32.self)
-    let ptr = start.relativeDirectAddress(as: _ContextDescriptor.self)
-    
+
+    // Each record is a RelativeDirectPointerIntPair<ContextDescriptor,
+    // TypeReferenceKind>: the low 2 bits of the relative offset encode the
+    // reference kind and must be masked off before resolving the pointer.
+    // Records whose kind is an indirect reference point at a GOT slot that
+    // holds the real descriptor, and ObjC class references never appear here.
+    let raw = Int(start.load(as: Int32.self))
+    let pointerOffset = raw & ~0x3
+
+    // A zero offset is a null/padding record; skip it.
+    guard pointerOffset != 0 else {
+      continue
+    }
+
+    let addr = start + pointerOffset
+    let ptr: UnsafeRawPointer
+
+    switch TypeReferenceKind(rawValue: UInt16(raw & 0x3)) {
+    case .directTypeDescriptor:
+      ptr = addr
+    case .indirectTypeDescriptor:
+      ptr = addr.load(as: UnsafeRawPointer.self)
+    default:
+      // .directObjCClass / .indirectObjCClass are never emitted into this list.
+      continue
+    }
+
     _ = typeLock.withLock {
       _types.insert(ptr)
     }
