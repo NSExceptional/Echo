@@ -120,7 +120,10 @@ buffer-population bug, and key paths are almost entirely commented out.
 
 Ordered by Value (descending), then Effort (ascending). **(Jsum)** marks gaps
 load-bearing for the object-mapping consumer. Rows ~~struck through~~ are already
-landed.
+landed. "Value" = how broadly a reflection user would reach for it — each gap's
+detailed subsection below opens with a concrete **Use case** that justifies its
+rating (High = common, mapper/tooling staples; Med = useful for specific tooling
+or robustness; Low = narrow niches).
 
 | # | Gap | Value | Effort | ABI location |
 |---|-----|:-----:|:------:|--------------|
@@ -142,6 +145,13 @@ landed.
 | 16 | Extended existential type shapes | Low | L | `Metadata.h:2104-2350`, `2449-2493` |
 
 ### 1. General demangler + public type-by-name ergonomics — Value: Med, Effort: S
+
+**Use case (Med).** You hold a type's *mangled name as data* — from a crash log, a
+`@_section` record, or a serialized polymorphic payload ("this JSON encodes a
+`MyApp.User`") — and need either a readable name to display or the live type to
+instantiate. Decode-by-type-name (polymorphic decoders) and debug/log formatters
+are the concrete drivers. Med, not High, because the load-bearing context-aware
+resolver already exists; this is the display + convenience half.
 
 **Already present (correction).** The core capability — resolving a mangled type
 name to a live `Any.Type` in the right generic context — *already exists* as
@@ -166,6 +176,13 @@ substitution callbacks) is already solved.
 
 ### 2. Dynamic cast (`swift_dynamicCast` family) — Value: High, Effort: S
 
+**Use case (High).** Decide at runtime "is this value actually a `T`?" or "does
+this type conform to `P`?" when `T`/`P` are discovered *dynamically* — from a
+plugin, a type registry, or a decoded type name — which `as?` cannot express
+because it needs a *static* type. An object mapper uses it to coerce a decoded
+value into a property's type; a plugin host checks a loaded class against a
+protocol; it also opens an `Any`/existential to its concrete type.
+
 **What.** "Is value of type `X` actually a `Y`?" and "open this existential to
 its concrete type." Includes `swift_dynamicCast` (general),
 `swift_dynamicCastClass[Unconditional]`, and
@@ -185,6 +202,12 @@ metadata-driven. The Echo survey notes `swift_dynamicCast` exists at the
 signatures that take `Metadata` and return typed results/optionals.
 
 ### 3. Associated types & associated conformances — Value: High, Effort: M
+
+**Use case (High).** A generic serializer/ORM recursing into a runtime-only-known
+type needs its associated types: `Collection.Element` to decode an array's
+elements, `RawRepresentable.RawValue` to decode an enum from its raw value,
+`Sequence.Element` to iterate. Without this you can see *that* a type conforms to
+`Sequence` but not *what* its `Element` is — so you can't descend into it.
 
 **What.** Given a conforming type's witness table and a protocol requirement,
 fetch the bound associated type's metadata (`Self.Element`) and the witness
@@ -207,6 +230,14 @@ exposed) to identify the right requirement descriptor.
 signature and the relative-vs-absolute witness variants.
 
 ### 4. ReflectionMirror field/child enumeration of arbitrary values — Value: Med, Effort: M
+
+**Use case (Med).** The *encode/inspect* direction: walk any value's properties
+and their current values — for serialization (model → JSON/dictionary), debug
+dumps and loggers, structural diffing, snapshot tests, or a runtime UI inspector
+that lists an object's fields (think a debug "view this object" panel). It's the
+most-requested "look inside any value" capability; Med rather than High only
+because it's read-only and cannot drive the harder decode (create + mutate)
+direction.
 
 > **Read-only — lower priority for the Jsum use case.** `swift_reflectionMirror_*`
 > returns *copies* of children (`-> Any`); it has no setter and no instance
@@ -242,6 +273,13 @@ or a from-scratch projector using already-exposed field offsets plus mangled-nam
 resolution from gap #1 (the two pair naturally).
 
 ### 5. Safe value-witness ops + instance allocation / set-by-offset — Value: High (Jsum), Effort: M
+
+**Use case (High).** The *decode* direction of an object mapper (Mantle/Jsum), an
+ORM hydrating a database row into a model, a deep-copy/clone utility, or a
+test-data builder: allocate an instance of a runtime-known type and fill its
+stored properties from a dictionary *without running `init`*. This is exactly
+what `Swift.Mirror` cannot do (it only reads), and the reason Jsum reaches into
+Echo at all.
 
 > **Highest-value gap for the Jsum consumer, and the next thing to build.** This
 > is the *write-side* surface an object mapper needs: allocate an instance of a
@@ -286,6 +324,13 @@ fields) and re-enabling the box project/dealloc path.
 
 ### 6. Class metadata flags: actor / default-actor / vtable / override-table / resilient-superclass-ref-kind — Value: High, Effort: S
 
+**Use case (High).** Concurrency-aware tooling: a DI container or registry that
+must know a class is an `actor` to dispatch to it correctly, or a debug inspector
+that labels actors. Equally important for *safety*: the vtable/override-table
+bits tell you whether a class descriptor even *carries* its trailing method
+records — so anything enumerating a class's methods must read these first or risk
+reading past valid memory.
+
 **What.** Surface the type-specific `TypeContextDescriptorFlags` bits that
 describe a class beyond the three `ClassMetadata.Flags` bits Echo decodes today
 (`isSwiftPreStableABI`, `usesSwiftRefCounting`, `hasCustomObjCName`). The
@@ -319,6 +364,13 @@ it to `TypeReferenceKind`.
 
 ### 7. Async/throws/Sendable/typed-throws/global-actor function metadata — Value: High, Effort: M
 
+**Use case (High).** Introspecting function/closure types: an RPC or
+command-dispatch framework checking a handler's shape (is it `async`? does it
+`throws`, and with what typed error? is it `@Sendable`? isolated to `@MainActor`?),
+a DI/plugin registry validating handler signatures, or a documentation/mock
+generator. None of this is decodable without these flags — Echo could see a value
+was a function but not how it could be called.
+
 **What.** Full modern function-signature reflection: `isAsync`, `isSendable`,
 `hasGlobalActor` (and the global-actor type), differentiability, isolation kind,
 sending result, and the typed-throws *thrown error type*.
@@ -346,6 +398,13 @@ which flags are set).
 
 ### 8. Noncopyable (`~Copyable`)/`~Escapable` & invertible protocols — Value: High, Effort: M
 
+**Use case (High).** A *correctness guard* for any code that copies values
+generically: copying a `~Copyable` value (a file handle, a `Span`, a unique
+resource) is illegal, so a mapper or deep-copier must check `isCopyable` before
+`initializeWithCopy` or it silently corrupts state / double-frees. As
+`~Copyable`/`~Escapable` spread through the standard library and ecosystem, this
+shifts from academic to load-bearing.
+
 **What.** Report whether a type is non-copyable / non-bitwise-borrowable, and
 decode the `InvertibleProtocolSet` constraints on generic parameters and
 extended function types.
@@ -369,6 +428,12 @@ and the conditional inverted protocols in generic contexts.
 trailing records in generic/extended-function/opaque contexts (the harder part).
 
 ### 9. Generic metadata instantiation correctness — Value: High, Effort: M
+
+**Use case (High).** Build `Foo<T>` metadata at runtime from `Foo`'s descriptor
+plus a runtime `T` — e.g. polymorphic decoding that learns "the container is
+`Array` and the element is `User`" and must instantiate `Array<User>` to decode
+into. The corruption crash is already fixed; the remaining value is ergonomic and
+ownership polish, so the *remaining* slice is effectively Med.
 
 **What.** Make `MetadataAccessFunction`'s general N-argument path correct and
 generally usable for instantiating generic metadata at runtime.
@@ -400,6 +465,11 @@ times. The caller-deallocates contract is also undocumented at the public API.
 
 ### 10. Full generic requirement decoding — Value: Med, Effort: M
 
+**Use case (Med).** Primarily *robustness*: reflecting any modern generic type —
+variadic (`each T`), integer (`let N: Int`), or noncopyable-constrained — used to
+crash on the unrecognized kind (the force-unwrap). Beyond not crashing, it lets a
+signature/schema renderer show a type's full set of generic constraints.
+
 **What.** Decode *all* requirement kinds and parameter kinds, not just the
 common three. Missing: the `sameConformance` conformance record (kind `0x3`),
 `sameShape` (pack-shape) requirements, layout kinds beyond `class`, and generic
@@ -421,6 +491,11 @@ mostly mechanical once the flag definitions are mirrored.
 
 ### 11. Variadic generics: pack-shape & same-shape classes — Value: Med, Effort: M
 
+**Use case (Med).** Fully introspecting variadic-generic types: knowing which
+generic arguments are packs and how long each pack is, so a reflector can walk or
+render a type built with parameter packs. Niche today — few application types use
+`each T` — which is why this is Med and not High.
+
 **What.** Surface parameter packs (`each T`), their pack-shape descriptors, and
 the same-shape equivalence classes that relate two packs of equal length.
 
@@ -440,6 +515,12 @@ the pack-shape array.
 
 ### 12. Opaque type resolution — Value: Med, Effort: M
 
+**Use case (Med).** Resolve a `some P` return to its concrete type at runtime —
+e.g. a SwiftUI inspector (where everything is `some View`) discovering a value is
+really a `VStack<…>`, or a serializer that must know the concrete type behind an
+opaque result before it can encode it. Mostly a consumer of the already-present
+name resolver, so moderate value for moderate effort.
+
 **What.** Turn an opaque result type (`some P`) into the concrete underlying
 type at runtime.
 
@@ -455,6 +536,12 @@ opaque descriptor's generic context.
 exposed.
 
 ### 13. Layout-string decoding from type context descriptors — Value: Med, Effort: M
+
+**Use case (Med).** Advanced low-level tooling that wants the *runtime's own*
+byte-layout description of a type — a custom zero-copy serializer, or validating
+field offsets for resilient/generic types where the field-offset-vector view is
+incomplete. Specialized: ordinary property access doesn't need it, so this is
+Med-for-tooling rather than broadly useful.
 
 **What.** Read and decode the layout string a type context descriptor may point
 to when the `HasLayoutString` flag is set — the compact byte-coded description
@@ -480,6 +567,12 @@ nontrivial and ABI-version-sensitive.
 
 ### 14. Distributed actors & accessible-function records — Value: Med, Effort: L
 
+**Use case (Med).** Building or debugging distributed-actor systems: enumerate
+which functions are remotely invocable and resolve a callee from its string key
+(how `DistributedActorSystem` dispatches a remote call), or write a test harness
+for distributed code. Valuable only if you use distributed actors — high value
+*within* that audience, niche outside it.
+
 **What.** Enumerate runtime-discoverable (distributed/remote-invocable)
 functions and resolve them by name, plus recognize distributed-actor metadata
 (building on the actor flags from Gap #6).
@@ -501,6 +594,11 @@ infrastructure but no record type or registration for accessible functions.
 
 ### 15. Dynamic replacement records — Value: Low, Effort: M
 
+**Use case (Low).** Testing/mocking frameworks that swap implementations via
+`@_dynamicReplacement`, or hot-reload tooling — inspecting and toggling
+replacement chains at runtime. A narrow tooling niche with few consumers, hence
+Low.
+
 **What.** Decode the `@_dynamicReplacement` chains: replacement keys,
 descriptors, and the enable/disable scope.
 
@@ -514,6 +612,11 @@ frameworks introspect and toggle these. Echo exposes none of it.
 than the type-reflection gaps.
 
 ### 16. Extended existential type shapes — Value: Low, Effort: L
+
+**Use case (Low).** Reflecting *constrained* existentials such as
+`any Collection<Int>` or other parameterized-protocol existentials — recovering
+their constraints and generalization arguments. Increasingly relevant as
+parameterized protocols spread, but rare and structurally complex today, so Low.
 
 **What.** Generalized existentials (`any P<Int>`, constrained protocol
 compositions) with explicit shape descriptors and generalization arguments.
