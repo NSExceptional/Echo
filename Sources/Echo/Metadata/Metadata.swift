@@ -105,6 +105,8 @@ func getMetadata(at ptr: UnsafeRawPointer) -> Metadata {
     return ObjCClassWrapperMetadata(ptr: ptr)
   case .existentialMetatype:
     return ExistentialMetatypeMetadata(ptr: ptr)
+  case .extendedExistential:
+    return ExtendedExistentialMetadata(ptr: ptr)
   case .heapLocalVariable:
     return HeapLocalVariableMetadata(ptr: ptr)
   case .heapGenericLocalVariable:
