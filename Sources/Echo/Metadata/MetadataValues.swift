@@ -42,7 +42,11 @@ public enum MetadataKind: Int {
   
   // (6 | Flags.isRuntimePrivate | Flags.isNonHeap)
   case existentialMetatype = 774
-  
+
+  // (7 | Flags.isRuntimePrivate | Flags.isNonHeap)
+  // A generalized/constrained existential, e.g. `any Collection<Int>`.
+  case extendedExistential = 775
+
   // (0 | Flags.isNonType)
   case heapLocalVariable = 1024
   
