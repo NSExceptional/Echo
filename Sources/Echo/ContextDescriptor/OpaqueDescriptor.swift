@@ -43,6 +43,39 @@ public struct OpaqueDescriptor: ContextDescriptor, LayoutWrapper {
       $1 = numUnderlyingTypes
     }
   }
+
+  /// Realizes the concrete underlying type for the underlying-type entry at
+  /// `index`, resolving its mangled name in this opaque descriptor's context.
+  ///
+  /// An opaque type (`some P`) stores its underlying type only as a mangled
+  /// name; this turns it into a live metatype. `genericArguments` supplies the
+  /// type arguments when the opaque type is nested in a generic context — pass
+  /// `nil` (the default) for a self-contained underlying type, e.g. a
+  /// non-generic `func f() -> some P` returning a concrete type.
+  /// - Parameters:
+  ///   - index: Which underlying type (`0 ..< numUnderlyingTypes`).
+  ///   - genericArguments: Pointer to the generic arguments, if any.
+  /// - Returns: The underlying type's metatype, or `nil` if out of range or
+  ///            unresolvable.
+  public func underlyingType(
+    at index: Int,
+    genericArguments: UnsafeRawPointer? = nil
+  ) -> Any.Type? {
+    let names = underlyingTypeMangledNames
+    guard names.indices.contains(index) else {
+      return nil
+    }
+
+    let mangledName = names[index]
+    let length = getSymbolicMangledNameLength(mangledName)
+    let name = mangledName.assumingMemoryBound(to: UInt8.self)
+    return _getTypeByMangledNameInContext(
+      name,
+      UInt(length),
+      genericContext: flags.isGeneric ? genericContext!.ptr : nil,
+      genericArguments: genericArguments
+    )
+  }
 }
 
 extension OpaqueDescriptor: Equatable {}
