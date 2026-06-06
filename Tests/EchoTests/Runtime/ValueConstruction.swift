@@ -6,6 +6,23 @@ struct VCPoint: Equatable {
   var y: Int
 }
 
+class VCAnimal {
+  var name: String
+  var legs: Int
+  init(name: String, legs: Int) {
+    self.name = name
+    self.legs = legs
+  }
+}
+
+class VCDog: VCAnimal {
+  var breed: String
+  init(name: String, legs: Int, breed: String) {
+    self.breed = breed
+    super.init(name: name, legs: legs)
+  }
+}
+
 // Large enough — and containing a reference — to be stored out-of-line, so the
 // boxed construction path and value-witness retain/release are exercised.
 struct VCPerson: Equatable {
@@ -89,6 +106,55 @@ enum ValueConstructionTests {
 
     XCTAssertEqual(metadata.fieldRecords.map(\.name), ["x", "y"])
   }
+
+  static func testClassCreateWithInheritance() throws {
+    let metadata = reflectClass(VCDog.self)!
+    let dog = metadata.createInstance(fields: [
+      "name": "Rex",   // inherited from VCAnimal
+      "legs": 4,       // inherited from VCAnimal
+      "breed": "Lab",  // declared on VCDog
+    ]) as! VCDog
+
+    XCTAssertEqual(dog.name, "Rex")
+    XCTAssertEqual(dog.legs, 4)
+    XCTAssertEqual(dog.breed, "Lab")
+  }
+
+  static func testTupleCreate() throws {
+    let metadata = reflect((Int, String).self) as! TupleMetadata
+    let tuple = metadata.createInstance(elements: [42, "hello"]) as! (Int, String)
+    XCTAssertEqual(tuple.0, 42)
+    XCTAssertEqual(tuple.1, "hello")
+  }
+
+  static func testSetByKeyStruct() throws {
+    let metadata = reflectStruct(VCPerson.self)!
+    var person = VCPerson(name: "old", nickname: "n", age: 1, id: 2)
+
+    withUnsafeMutablePointer(to: &person) { pointer in
+      let raw = UnsafeMutableRawPointer(pointer)
+      // Reassign an Int (POD) and a String (releases the old, retains the new).
+      metadata.set(99, forKey: "age", in: raw)
+      metadata.set("brand new name", forKey: "name", in: raw)
+    }
+
+    XCTAssertEqual(person.age, 99)
+    XCTAssertEqual(person.name, "brand new name")
+    XCTAssertEqual(person.id, 2)
+  }
+
+  static func testSetByKeyClass() throws {
+    let metadata = reflectClass(VCDog.self)!
+    let dog = VCDog(name: "Rex", legs: 4, breed: "Lab")
+    let object = unsafeBitCast(dog, to: UnsafeMutableRawPointer.self)
+
+    metadata.set("Max", forKey: "name", in: object)    // inherited field
+    metadata.set("Husky", forKey: "breed", in: object) // own field
+
+    XCTAssertEqual(dog.name, "Max")
+    XCTAssertEqual(dog.breed, "Husky")
+    XCTAssertEqual(dog.legs, 4)
+  }
 }
 
 extension EchoTests {
@@ -98,5 +164,9 @@ extension EchoTests {
     try ValueConstructionTests.testValueBufferRoundTrip()
     try ValueConstructionTests.testValueByKey()
     try ValueConstructionTests.testFieldMetadataByKey()
+    try ValueConstructionTests.testClassCreateWithInheritance()
+    try ValueConstructionTests.testTupleCreate()
+    try ValueConstructionTests.testSetByKeyStruct()
+    try ValueConstructionTests.testSetByKeyClass()
   }
 }
