@@ -2,15 +2,68 @@
 //  ValueConstruction.swift
 //  Echo
 //
-//  Safe, high-level construction of values whose type is only known at runtime.
-//  These build on the value-witness table to allocate and populate instances
-//  without the caller having to touch raw `unsafeBitCast`s.
+//  Safe, high-level construction and access of values whose type is only known
+//  at runtime. These build on the value-witness table to allocate, populate,
+//  copy, and read back values without the caller having to touch raw
+//  `unsafeBitCast`s.
 //
-//  NOTE: The read-back / arbitrary-buffer round-trip APIs (reading a non-inline
-//  boxed value back into `Any`) are intentionally not exposed yet — they depend
-//  on `AnyExistentialContainer.projectValue()`, which currently mislocates the
-//  value for out-of-line (boxed) types. See GAPS.md "Known fragilities".
-//
+
+//===----------------------------------------------------------------------===//
+// Pointer access to an Any's value (lifetime-safe)
+//===----------------------------------------------------------------------===//
+
+/// Invokes `body` with a pointer to the in-memory value of `value`.
+///
+/// This is the safe way to obtain a pointer to an `Any`'s underlying value: for
+/// values stored out-of-line (larger than three words) the value lives in a
+/// heap box owned by `value`, so the pointer is only valid while `value` is
+/// alive. This keeps `value` alive for the duration of `body` and does not
+/// escape the pointer.
+/// - Parameters:
+///   - value: The value whose storage should be accessed.
+///   - body: A closure receiving a pointer to `value`'s storage. Do not let the
+///           pointer escape the closure.
+/// - Returns: Whatever `body` returns.
+public func withValuePointer<Result>(
+  of value: Any,
+  _ body: (UnsafeRawPointer) throws -> Result
+) rethrows -> Result {
+  var container = container(for: value)
+  // `container` shares `value`'s heap box (if any); keep `value` alive so the
+  // box outlives the projected pointer.
+  return try withExtendedLifetime(value) {
+    try body(container.projectValue())
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Raw value buffers
+//===----------------------------------------------------------------------===//
+
+extension Metadata {
+  /// Allocates a raw, uninitialized buffer sized and aligned to hold exactly
+  /// one value of this type.
+  ///
+  /// The caller owns the returned buffer. Once a value has been initialized
+  /// into it (e.g. via the value witnesses), destroy that value with
+  /// `vwt.destroy(_:)` before freeing the buffer with `deallocate()`.
+  /// - Returns: A pointer to the freshly allocated, uninitialized storage.
+  public func allocateValueBuffer() -> UnsafeMutableRawPointer {
+    UnsafeMutableRawPointer.allocate(
+      byteCount: vwt.size,
+      alignment: vwt.flags.alignment
+    )
+  }
+
+  /// Reads the value at `buffer` — which must be a valid, initialized instance
+  /// of this type — back into an `Any`, copying it. The buffer is left intact
+  /// (its value is not consumed).
+  /// - Parameter buffer: A pointer to a valid instance of this type.
+  /// - Returns: The value boxed as `Any`.
+  public func value(at buffer: UnsafeRawPointer) -> Any {
+    AnyExistentialContainer(metadata: self, copying: buffer).toAny
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // AnyExistentialContainer ergonomics
@@ -31,8 +84,8 @@ extension AnyExistentialContainer {
   /// Prefer this over `projectValue()` when *populating* a freshly created
   /// container: `projectValue()` assumes a box already exists for out-of-line
   /// types, whereas this allocates one on demand. The returned pointer is the
-  /// box's value slot as reported by the runtime, so values written through it
-  /// are read back correctly by a later cast of `toAny`.
+  /// box's value slot, so values written through it are read back correctly by
+  /// a later cast of `toAny`.
   /// - Returns: A pointer to writable storage for this container's value.
   public mutating func mutableValueBuffer() -> UnsafeMutableRawPointer {
     // An out-of-line value that already has a box: reuse it.
@@ -44,10 +97,22 @@ extension AnyExistentialContainer {
     // heap box (which also records the box pointer in `data`).
     return metadata.allocateBoxForExistential(in: &self).mutable
   }
+
+  /// Creates a container of `metadata`'s type holding a copy of the value at
+  /// `source`, which must be a valid instance of that type. The value is copied
+  /// (via `initializeWithCopy`); `source` is left intact.
+  public init(metadata: Metadata, copying source: UnsafeRawPointer) {
+    // Build into stable storage first: allocating a box records its pointer via
+    // `&self`, which only persists reliably once `self` is settled.
+    var container = AnyExistentialContainer(metadata: metadata)
+    let destination = container.mutableValueBuffer()
+    metadata.vwt.initializeWithCopy(destination, source.mutable)
+    self = container
+  }
 }
 
 //===----------------------------------------------------------------------===//
-// Stored-property metadata by name
+// Stored-property access by name
 //===----------------------------------------------------------------------===//
 
 extension TypeMetadata {
@@ -83,6 +148,34 @@ extension TypeMetadata {
 
     return reflect(type)
   }
+
+  /// Reads the stored property named `key` from the instance at `instance`.
+  /// - Parameters:
+  ///   - key: The stored property's declared name.
+  ///   - instance: A pointer to a valid instance of this type.
+  /// - Returns: The property's value as `Any`, or `nil` if there is no such
+  ///            stored property.
+  public func value(forKey key: String, from instance: UnsafeRawPointer) -> Any? {
+    guard let offset = fieldOffset(forKey: key),
+          let type = fieldType(forKey: key) else {
+      return nil
+    }
+
+    return type.value(at: instance + offset)
+  }
+
+  /// Reads the stored property named `key` from `instance`.
+  ///
+  /// A lifetime-safe convenience over `value(forKey:from:)` that keeps
+  /// `instance` alive while its storage is read.
+  /// - Parameters:
+  ///   - key: The stored property's declared name.
+  ///   - instance: A value of this type.
+  /// - Returns: The property's value as `Any`, or `nil` if there is no such
+  ///            stored property.
+  public func value(forKey key: String, of instance: Any) -> Any? {
+    withValuePointer(of: instance) { value(forKey: key, from: $0) }
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -112,13 +205,13 @@ extension StructMetadata {
         continue
       }
 
-      var valueBox = container(for: value)
-      // The destination field is freshly allocated (uninitialized), so an
-      // initialize — not assign — is the correct value-witness operation.
-      fieldType.vwt.initializeWithCopy(
-        base + offset,
-        valueBox.projectValue().mutable
-      )
+      // `value` is kept alive by `fields` for the duration of this loop, so its
+      // storage pointer is valid here.
+      withValuePointer(of: value) { valuePointer in
+        // The destination field is freshly allocated (uninitialized), so an
+        // initialize — not assign — is the correct value-witness operation.
+        fieldType.vwt.initializeWithCopy(base + offset, valuePointer.mutable)
+      }
     }
 
     return existential.toAny
