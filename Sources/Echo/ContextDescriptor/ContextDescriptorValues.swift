@@ -314,7 +314,29 @@ public struct TypeContextDescriptorFlags {
   public var hasImportInfo: Bool {
     bits & 0x4 != 0
   }
-  
+
+  /// Whether this type's metadata carries a layout string (compact byte-coded
+  /// layout description used by the runtime for value operations).
+  public var hasLayoutString: Bool {
+    bits & 0x10 != 0
+  }
+
+  /// Whether this class has a default override table (a class-only flag).
+  public var classHasDefaultOverrideTable: Bool {
+    bits & 0x40 != 0
+  }
+
+  /// Whether this class is an `actor` (a class-only flag).
+  public var classIsActor: Bool {
+    bits & 0x80 != 0
+  }
+
+  /// Whether this class is a default actor — an actor with the default,
+  /// runtime-provided executor rather than a custom one (a class-only flag).
+  public var classIsDefaultActor: Bool {
+    bits & 0x100 != 0
+  }
+
   /// The resilient superclass type reference kind.
   public var resilientSuperclassRefKind: TypeReferenceKind {
     // The reference kind occupies a 3-bit field starting at bit 9, so it must

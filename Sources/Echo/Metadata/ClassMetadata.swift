@@ -23,14 +23,27 @@ public struct ClassMetadata: TypeMetadata, LayoutWrapper {
   /// The class context descriptor that describes this class.
   public var descriptor: ClassDescriptor? {
     precondition(isSwiftClass)
-    
+
     if let descriptorPtr = layout._descriptor.signed {
         return ClassDescriptor(ptr: descriptorPtr)
     }
-    
+
     return nil
   }
-  
+
+  /// Whether this class is an `actor`. Always `false` for non-Swift (e.g.
+  /// Objective-C) classes.
+  public var isActor: Bool {
+    isSwiftClass && descriptor?.typeFlags.classIsActor == true
+  }
+
+  /// Whether this class is a *default* actor — an actor using the default,
+  /// runtime-provided executor rather than a custom one. Always `false` for
+  /// non-Swift classes.
+  public var isDefaultActor: Bool {
+    isSwiftClass && descriptor?.typeFlags.classIsDefaultActor == true
+  }
+
   /// The Objective-C ISA pointer, if it has one.
   public var isaPointer: UnsafeRawPointer? {
     let int = ptr.load(as: Int.self)
