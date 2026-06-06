@@ -104,6 +104,20 @@ buffer-population bug, and key paths are almost entirely commented out.
 
 ## Gaps
 
+> **Status (implemented this effort).** ✅ **#5** safe value construction/mutation
+> (struct/class/tuple `createInstance`, `set(_:forKey:)`, `value(forKey:)`,
+> lifetime-safe `withValuePointer`), ✅ **#2** `dynamicCast(_:to:)`, ✅ **#3**
+> associated-type witness resolution, ✅ **#4** `children(of:)` ReflectionMirror
+> wrap, ✅ **#6/#7/#8** the missing class/function/value-witness flag accessors
+> (actor, async/throws/Sendable/global-actor, `~Copyable`), ✅ **#1** general
+> `demangle(_:)` + `type(named:)`, ✅ **#10** variadic/value generic param &
+> requirement kinds. Plus crash fixes: `__swift5_types` decode,
+> `resilientSuperclassRefKind`, `MetadataAccessFunction` arg corruption, generic
+> param/requirement kind force-unwraps, and the `container(for:)` lifetime
+> footgun. **Remaining (lower priority / deep):** #12 opaque-type realization,
+> #13 layout strings, #14 distributed/accessible functions, #15 dynamic
+> replacement, #16 extended existentials, and #9's buffer-ownership polish.
+
 Ordered by Value (descending), then Effort (ascending). **(Jsum)** marks gaps
 load-bearing for the object-mapping consumer. Rows ~~struck through~~ are already
 landed.
