@@ -247,7 +247,7 @@ func createMetadataAccessBuffer(
   // First loop is inserting the key arguments at the front of the buffer.
   for i in 0 ..< args.count {
     buffer.storeBytes(
-      of: args[0].0,
+      of: args[i].0,
       toByteOffset: ptrSize * i,
       as: Any.Type.self
     )

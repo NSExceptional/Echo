@@ -121,11 +121,44 @@ enum MetadataAccessFunctionTests {
     XCTAssertEqual(dictResponse.state, .complete)
     XCTAssert(dictResponse.type == [Double: Double].self)
   }
+
+  static func testWitnessTableDistinctArgs() throws {
+    // Regression: createMetadataAccessBuffer previously stored args[0] for
+    // every key-argument slot, so any instantiation whose generic arguments
+    // differ by position came out wrong. The bug only surfaces when (a) the
+    // arguments are distinct and (b) witness tables are present, which forces
+    // the buffer path instead of the fixed-arity accessors. FooBaz2<Int, _>
+    // with two Equatable witness tables hits exactly that path.
+    let equatableMetadata = reflect(_typeByName("SQ")!) as! ExistentialMetadata
+    let equatable = equatableMetadata.protocols[0]
+
+    func equatableWitness(for type: Any.Type) -> WitnessTable {
+      for conformance in reflectStruct(type)!.conformances
+      where conformance.protocol == equatable {
+        return conformance.witnessTablePattern
+      }
+      fatalError("\(type) has no Equatable conformance")
+    }
+
+    let intEquatable = equatableWitness(for: Int.self)
+    let doubleEquatable = equatableWitness(for: Double.self)
+
+    let metadata = reflectStruct(FooBaz2<Int, Int>.self)!
+    let accessor = metadata.descriptor.accessor
+    let response = accessor(
+      .complete,
+      (Int.self, intEquatable),
+      (Double.self, doubleEquatable)
+    )
+    XCTAssertEqual(response.state, .complete)
+    XCTAssert(response.type == FooBaz2<Int, Double>.self)
+  }
 }
 
 extension EchoTests {
   func testMetadataAccessFunction() throws {
     try MetadataAccessFunctionTests.testPlain()
     try MetadataAccessFunctionTests.testWitnessTable()
+    try MetadataAccessFunctionTests.testWitnessTableDistinctArgs()
   }
 }
