@@ -187,6 +187,37 @@ public struct ExtendedFunctionTypeFlags {
   public var hasSendingResult: Bool {
     bits & 0x10 != 0
   }
+
+  /// The set of invertible protocols (`Copyable`, `Escapable`) whose
+  /// requirement is *inverted* for this function type — i.e. that the function
+  /// does not require of its noncopyable/nonescapable inputs. Stored in the
+  /// high 16 bits.
+  public var invertedProtocols: InvertibleProtocolSet {
+    InvertibleProtocolSet(bits: UInt16(truncatingIfNeeded: bits >> 16))
+  }
+}
+
+/// A set of invertible protocols (`Copyable`, `Escapable`). When a protocol is
+/// present in the set, its requirement is *inverted* — i.e. the corresponding
+/// `~Copyable`/`~Escapable` capability is permitted rather than required.
+public struct InvertibleProtocolSet {
+  /// Flags as represented in bits.
+  public let bits: UInt16
+
+  /// Whether `Copyable` is inverted (i.e. `~Copyable` is permitted).
+  public var invertsCopyable: Bool {
+    bits & (1 << 0) != 0
+  }
+
+  /// Whether `Escapable` is inverted (i.e. `~Escapable` is permitted).
+  public var invertsEscapable: Bool {
+    bits & (1 << 1) != 0
+  }
+
+  /// Whether the set is empty — no invertible-protocol requirement is inverted.
+  public var isEmpty: Bool {
+    bits == 0
+  }
 }
 
 extension FunctionMetadata: Equatable {}

@@ -65,8 +65,12 @@ enum MetadataFlagsTests {
     if #available(macOS 15, iOS 18, tvOS 18, watchOS 11, *) {
       let typedThrows = reflect((() throws(FlagThrownError) -> Void).self) as! FunctionMetadata
       XCTAssertTrue(typedThrows.flags.hasExtendedFlags)
-      XCTAssertEqual(typedThrows.extendedFlags?.isTypedThrows, true)
+      let extended = try XCTUnwrap(typedThrows.extendedFlags)
+      XCTAssertTrue(extended.isTypedThrows)
       XCTAssert(typedThrows.thrownErrorType == FlagThrownError.self)
+      // A copyable/escapable function inverts nothing.
+      XCTAssertTrue(extended.invertedProtocols.isEmpty)
+      XCTAssertFalse(extended.invertedProtocols.invertsCopyable)
     }
   }
 
