@@ -89,6 +89,112 @@ public struct GenericContext: LayoutWrapper {
     let base = MemoryLayout<_GenericContextDescriptorHeader>.size
     return base + parameterSize + requirementSize
   }
+
+  /// Flags describing what trailing records this generic context carries (type
+  /// packs, conditional inverted protocols, value parameters).
+  public var descriptorFlags: GenericContextDescriptorFlags {
+    // The header's 4th word was originally "NumExtraArguments" (always 0 in
+    // pre-5.8 runtimes) and is now repurposed as the flags word.
+    GenericContextDescriptorFlags(bits: layout._numExtraArguments)
+  }
+
+  /// The pack-shape header, present when this context has type-pack parameters
+  /// (variadic generics). Describes how many packs and same-shape equivalence
+  /// classes the context has.
+  public var packShapeHeader: GenericPackShapeHeader? {
+    guard descriptorFlags.hasTypePacks else {
+      return nil
+    }
+
+    // Trails the parameter and requirement arrays.
+    let offset = parameterSize + requirementSize
+    return (trailing + offset).load(as: GenericPackShapeHeader.self)
+  }
+
+  /// The pack-shape descriptors, one per pack metadata/witness-table argument,
+  /// each tagged with its same-shape equivalence class. Empty for contexts
+  /// without type packs.
+  public var packShapeDescriptors: [GenericPackShapeDescriptor] {
+    guard let header = packShapeHeader else {
+      return []
+    }
+
+    let base = trailing + parameterSize + requirementSize
+      + MemoryLayout<GenericPackShapeHeader>.size
+
+    return Array(unsafeUninitializedCapacity: Int(header.numShapeClasses)) {
+      for i in 0 ..< Int(header.numShapeClasses) {
+        $0[i] = base.load(
+          fromByteOffset: i * MemoryLayout<GenericPackShapeDescriptor>.stride,
+          as: GenericPackShapeDescriptor.self
+        )
+      }
+
+      $1 = Int(header.numShapeClasses)
+    }
+  }
+}
+
+/// Flags describing the trailing records a generic context carries.
+public struct GenericContextDescriptorFlags {
+  /// Flags as represented in bits.
+  public let bits: UInt16
+
+  /// Whether at least one generic parameter is a type pack (`each T`), in which
+  /// case the context carries a trailing `GenericPackShapeHeader`.
+  public var hasTypePacks: Bool {
+    bits & 0x1 != 0
+  }
+
+  /// Whether the context has conditional conformances to inverted protocols
+  /// (e.g. conditional `~Copyable`), with trailing inverted-protocol records.
+  public var hasConditionalInvertedProtocols: Bool {
+    bits & 0x2 != 0
+  }
+
+  /// Whether the context has at least one value generic parameter
+  /// (`let N: Int`), with a trailing value header.
+  public var hasValues: Bool {
+    bits & 0x4 != 0
+  }
+}
+
+/// The header preceding a generic context's pack-shape descriptors.
+public struct GenericPackShapeHeader {
+  /// The number of generic parameters and conformance requirements that are
+  /// packs.
+  public let numPacks: UInt16
+
+  /// The number of equivalence classes in the same-shape relation.
+  public let numShapeClasses: UInt16
+}
+
+/// What a pack-shape descriptor describes — a metadata pack or a witness-table
+/// pack.
+public enum GenericPackKind: UInt16 {
+  case metadata = 0
+  case witnessTable = 1
+}
+
+/// Describes a single generic parameter/requirement pack and its same-shape
+/// equivalence class.
+public struct GenericPackShapeDescriptor {
+  let _kind: UInt16
+
+  /// The index of this metadata pack or witness-table pack in the generic
+  /// arguments array.
+  public let index: UInt16
+
+  /// The equivalence class of this pack under the same-shape relation
+  /// (`< GenericPackShapeHeader.numShapeClasses`).
+  public let shapeClass: UInt16
+
+  let _unused: UInt16
+
+  /// Whether this describes a metadata pack or a witness-table pack.
+  public var kind: GenericPackKind {
+    GenericPackKind(rawValue: _kind) ?? .metadata
+  }
 }
 
 /// This descriptor describes any generic requirement in either a generic
@@ -116,10 +222,12 @@ public struct GenericRequirementDescriptor: LayoutWrapper {
     address(for: \._param)
   }
   
-  /// If this requirement is a sameType or baseClass, this is the mangled name
-  /// for the type that's being constrained.
+  /// If this requirement is a `sameType`, `baseClass`, or `sameShape`, this is
+  /// the mangled name for the type (or, for `sameShape`, the parameter pack)
+  /// that's being constrained against.
   public var mangledTypeName: UnsafeRawPointer {
-    assert(flags.kind == .sameType || flags.kind == .baseClass)
+    assert(flags.kind == .sameType || flags.kind == .baseClass
+           || flags.kind == .sameShape)
     let addr = address(for: \._requirement)
     return addr.relativeDirectAddress(as: CChar.self)
   }
