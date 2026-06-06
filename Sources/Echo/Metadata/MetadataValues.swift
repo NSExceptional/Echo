@@ -174,6 +174,33 @@ extension FunctionMetadata {
     public var isEscaping: Bool {
       bits & 0x4000000 != 0
     }
+
+    /// Whether or not this function is `@differentiable`.
+    public var isDifferentiable: Bool {
+      bits & 0x8000000 != 0
+    }
+
+    /// Whether or not this function is isolated to a global actor. When set, the
+    /// global actor type is stored in the function metadata's trailing objects.
+    public var hasGlobalActor: Bool {
+      bits & 0x10000000 != 0
+    }
+
+    /// Whether or not this is an `async` function.
+    public var isAsync: Bool {
+      bits & 0x20000000 != 0
+    }
+
+    /// Whether or not this function is `@Sendable`.
+    public var isSendable: Bool {
+      bits & 0x40000000 != 0
+    }
+
+    /// Whether or not this function carries extended flags (e.g. typed throws,
+    /// isolation, a sending result), stored in the trailing objects.
+    public var hasExtendedFlags: Bool {
+      bits & 0x80000000 != 0
+    }
   }
 }
 
@@ -237,6 +264,8 @@ extension ValueWitnessTable {
       case isNonBitwiseTakable = 0x100000
       case hasEnumWitnesses    = 0x200000
       case incomplete          = 0x400000
+      case isNonCopyable       = 0x800000
+      case isNonBitwiseBorrowable = 0x1000000
     }
     
     /// Flags as represented in bits.
@@ -276,6 +305,20 @@ extension ValueWitnessTable {
     /// Whether or not this value witness table is incomplete.
     public var isIncomplete: Bool {
       bits & Flags.incomplete.rawValue != 0
+    }
+
+    /// Whether or not this type is copyable. Non-copyable types (`~Copyable`)
+    /// must not be copied — only moved/consumed — so reflection code that copies
+    /// values (e.g. via `initializeWithCopy`) must check this first.
+    public var isCopyable: Bool {
+      bits & Flags.isNonCopyable.rawValue == 0
+    }
+
+    /// Whether or not this type is bitwise borrowable. A type is bitwise
+    /// borrowable when it is bitwise takable and the runtime has not marked it
+    /// non-bitwise-borrowable.
+    public var isBitwiseBorrowable: Bool {
+      isBitwiseTakable && bits & Flags.isNonBitwiseBorrowable.rawValue == 0
     }
   }
 }
