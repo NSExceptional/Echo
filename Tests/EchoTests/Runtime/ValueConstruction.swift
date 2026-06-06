@@ -8,7 +8,7 @@ struct VCPoint: Equatable {
 
 // Large enough — and containing a reference — to be stored out-of-line, so the
 // boxed construction path and value-witness retain/release are exercised.
-struct VCPerson {
+struct VCPerson: Equatable {
   var name: String
   var nickname: String
   var age: Int
@@ -41,6 +41,41 @@ enum ValueConstructionTests {
     XCTAssertEqual(person.id, 1815)
   }
 
+  static func testValueBufferRoundTrip() throws {
+    let metadata = reflect(VCPerson.self)
+    let original: Any = VCPerson(
+      name: "Grace Hopper",
+      nickname: "Amazing Grace",
+      age: 85,
+      id: 1906
+    )
+
+    let buffer = metadata.allocateValueBuffer()
+    defer {
+      metadata.vwt.destroy(buffer)
+      buffer.deallocate()
+    }
+
+    // Copy the value into the caller-owned buffer; after this the buffer holds
+    // an independent copy, so it outlives `original`.
+    withValuePointer(of: original) { source in
+      metadata.vwt.initializeWithCopy(buffer, UnsafeMutableRawPointer(mutating: source))
+    }
+
+    let roundTripped = metadata.value(at: buffer) as! VCPerson
+    XCTAssertEqual(roundTripped, original as! VCPerson)
+  }
+
+  static func testValueByKey() throws {
+    let metadata = reflectStruct(VCPerson.self)!
+    let person = VCPerson(name: "Katherine", nickname: "Johnson", age: 101, id: 1918)
+
+    XCTAssertEqual(metadata.value(forKey: "name", of: person) as? String, "Katherine")
+    XCTAssertEqual(metadata.value(forKey: "age", of: person) as? Int, 101)
+    XCTAssertEqual(metadata.value(forKey: "id", of: person) as? Int, 1918)
+    XCTAssertNil(metadata.value(forKey: "nonexistent", of: person))
+  }
+
   static func testFieldMetadataByKey() throws {
     let metadata = reflectStruct(VCPoint.self)!
 
@@ -60,6 +95,8 @@ extension EchoTests {
   func testValueConstruction() throws {
     try ValueConstructionTests.testStructCreateInline()
     try ValueConstructionTests.testStructCreateOutOfLine()
+    try ValueConstructionTests.testValueBufferRoundTrip()
+    try ValueConstructionTests.testValueByKey()
     try ValueConstructionTests.testFieldMetadataByKey()
   }
 }

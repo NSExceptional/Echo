@@ -572,20 +572,17 @@ These are bugs or stability hazards in code Echo already ships.
 - **VWT calls require unsafe access.** Direct value-witness invocation is only
   reachable via `CEcho` arm64e ptrauth stubs; there is no safe Swift surface
   (see Gap #5).
-- **🔴 `AnyExistentialContainer.projectValue()` mislocates out-of-line values
-  (NEW, HIGH severity).** For values stored *inline* it is correct, but for
-  out-of-line (boxed) values — types larger than the 3-word inline buffer — it
-  returns a pointer that is not the value: reading back a boxed value through
-  `container(for:).projectValue()` yields garbage
-  (`Sources/Echo/Runtime/ExistentialContainer.swift:50-69`). Discovered while
-  building the Gap #5 write surface: `StructMetadata.createInstance(fields:)`
-  works (it writes into a `swift_allocBox` buffer and is read back via the
-  runtime's own projection), but a value-read round-trip of a boxed value does
-  not. This is foundational — `container(for:)` and `projectValue()` underpin
-  most value access (including Jsum's), so it blocks the read half of Gap #5 and
-  affects construction whenever a *field value* is itself out-of-line. Likely a
-  box header-size / value-offset miscalculation versus the current Swift runtime
-  box layout. Root-cause and fix before exposing `value(at:)`/`value(forKey:)`.
+- **`container(for:)` lifetime footgun for out-of-line values (MED, by design).**
+  `projectValue()`'s offset math is *correct* (an earlier draft wrongly called it
+  a mislocation bug — verified: with the value kept alive, a boxed value projects
+  to the right pointer). The real hazard: `container(for: x)` boxes a non-inline
+  `x` into its `Any` parameter, and that heap box is released when the call
+  returns — so `container(for: temporary).projectValue()` returns a **dangling**
+  pointer for out-of-line values unless a live `Any` still holds the box. Inline
+  values are unaffected (self-contained in `data`). Echo now ships the
+  lifetime-safe `withValuePointer(of:_:)` and `value(forKey:of:)` to encapsulate
+  this; raw pointer APIs document the requirement. `createInstance` is safe
+  because the `fields` dict keeps values alive during construction.
 
 ## Suggested roadmap
 
