@@ -9,6 +9,10 @@ class FlagPlainClass {
   var x = 0
 }
 
+enum FlagThrownError: Error {
+  case boom
+}
+
 enum MetadataFlagsTests {
   static func testValueWitnessCopyability() throws {
     // Ordinary copyable types report copyable / bitwise-borrowable.
@@ -44,6 +48,28 @@ enum MetadataFlagsTests {
     XCTAssertTrue(globalActorFn.flags.hasGlobalActor)
   }
 
+  static func testFunctionTrailingTypes() throws {
+    // Plain function: none of the conditional trailing fields.
+    let plain = reflect((() -> Void).self) as! FunctionMetadata
+    XCTAssertNil(plain.globalActorType)
+    XCTAssertNil(plain.extendedFlags)
+    XCTAssertNil(plain.thrownErrorType)
+
+    // Global actor isolation carries the actor type in the trailing objects.
+    let mainActorFn = reflect((@MainActor () -> Void).self) as! FunctionMetadata
+    XCTAssertTrue(mainActorFn.flags.hasGlobalActor)
+    XCTAssert(mainActorFn.globalActorType == MainActor.self)
+
+    // Typed throws carries extended flags + the thrown error type. The runtime
+    // support for typed-throws function metadata requires macOS 15 / iOS 18.
+    if #available(macOS 15, iOS 18, tvOS 18, watchOS 11, *) {
+      let typedThrows = reflect((() throws(FlagThrownError) -> Void).self) as! FunctionMetadata
+      XCTAssertTrue(typedThrows.flags.hasExtendedFlags)
+      XCTAssertEqual(typedThrows.extendedFlags?.isTypedThrows, true)
+      XCTAssert(typedThrows.thrownErrorType == FlagThrownError.self)
+    }
+  }
+
   static func testActorFlags() throws {
     let actorMetadata = reflectClass(FlagActor.self)!
     XCTAssertTrue(actorMetadata.isActor)
@@ -65,6 +91,7 @@ extension EchoTests {
   func testMetadataFlags() throws {
     try MetadataFlagsTests.testValueWitnessCopyability()
     try MetadataFlagsTests.testFunctionFlags()
+    try MetadataFlagsTests.testFunctionTrailingTypes()
     try MetadataFlagsTests.testActorFlags()
   }
 }

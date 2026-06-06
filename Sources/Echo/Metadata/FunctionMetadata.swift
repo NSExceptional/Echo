@@ -78,6 +78,117 @@ public struct FunctionMetadata: Metadata, LayoutWrapper {
   }
 }
 
+extension FunctionMetadata {
+  // The conditional trailing fields after the parameter array, in ABI order:
+  // parameters, parameter flags, differentiability, global actor, extended
+  // flags, thrown error. Each is laid out at its natural alignment.
+  private func trailingFieldOffsets() -> (
+    globalActor: Int?, extendedFlags: Int?, thrownError: Int?
+  ) {
+    let pointerSize = MemoryLayout<UnsafeRawPointer>.size
+    let uint32Size = MemoryLayout<UInt32>.size
+
+    func aligned(_ offset: Int, to alignment: Int) -> Int {
+      (offset + alignment - 1) & ~(alignment - 1)
+    }
+
+    // After the parameter type array.
+    var offset = flags.numParams * pointerSize
+
+    if flags.hasParamFlags {
+      offset += flags.numParams * uint32Size
+    }
+
+    if flags.isDifferentiable {
+      offset = aligned(offset, to: pointerSize)
+      offset += pointerSize
+    }
+
+    var globalActor: Int?
+    if flags.hasGlobalActor {
+      offset = aligned(offset, to: pointerSize)
+      globalActor = offset
+      offset += pointerSize
+    }
+
+    var extendedFlags: Int?
+    if flags.hasExtendedFlags {
+      offset = aligned(offset, to: uint32Size)
+      extendedFlags = offset
+      offset += uint32Size
+    }
+
+    var thrownError: Int?
+    if let extendedFlags,
+       trailing.load(fromByteOffset: extendedFlags, as: ExtendedFunctionTypeFlags.self)
+         .isTypedThrows {
+      offset = aligned(offset, to: pointerSize)
+      thrownError = offset
+      offset += pointerSize
+    }
+
+    return (globalActor, extendedFlags, thrownError)
+  }
+
+  /// The global actor this function type is isolated to (e.g. `MainActor`), if
+  /// it has one (`flags.hasGlobalActor`).
+  public var globalActorType: Any.Type? {
+    guard let offset = trailingFieldOffsets().globalActor else {
+      return nil
+    }
+
+    return trailing.load(fromByteOffset: offset, as: Any.Type.self)
+  }
+
+  /// The extended function-type flags (typed throws, isolation kind, sending
+  /// result), if present (`flags.hasExtendedFlags`).
+  public var extendedFlags: ExtendedFunctionTypeFlags? {
+    guard let offset = trailingFieldOffsets().extendedFlags else {
+      return nil
+    }
+
+    return trailing.load(fromByteOffset: offset, as: ExtendedFunctionTypeFlags.self)
+  }
+
+  /// The error type of a typed-throws function (e.g. `MyError` for
+  /// `throws(MyError)`), if it has one.
+  public var thrownErrorType: Any.Type? {
+    guard let offset = trailingFieldOffsets().thrownError else {
+      return nil
+    }
+
+    return trailing.load(fromByteOffset: offset, as: Any.Type.self)
+  }
+}
+
+/// The extended flags carried by some function types, beyond the 32-bit
+/// `FunctionMetadata.Flags`. Present only when `flags.hasExtendedFlags`.
+public struct ExtendedFunctionTypeFlags {
+  /// Flags as represented in bits.
+  public let bits: UInt32
+
+  /// Whether this function uses typed throws (`throws(E)`); if so, the thrown
+  /// error type is available via `FunctionMetadata.thrownErrorType`.
+  public var isTypedThrows: Bool {
+    bits & 0x1 != 0
+  }
+
+  /// Whether this function has `@isolated(any)` isolation.
+  public var isIsolatedAny: Bool {
+    bits & 0xE == 0x2
+  }
+
+  /// Whether this function is `nonisolated(nonsending)`.
+  public var isNonIsolatedNonsending: Bool {
+    bits & 0xE == 0x4
+  }
+
+  /// Whether this function has a `sending` result.
+  public var hasSendingResult: Bool {
+    bits & 0x10 != 0
+  }
+}
+
 extension FunctionMetadata: Equatable {}
 
 struct _FunctionMetadata {
