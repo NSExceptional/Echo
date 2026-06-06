@@ -119,30 +119,31 @@ buffer-population bug, and key paths are almost entirely commented out.
 > replacement, #16 extended existentials, and #9's buffer-ownership polish.
 
 Ordered by Value (descending), then Effort (ascending). **(Jsum)** marks gaps
-load-bearing for the object-mapping consumer. Rows ~~struck through~~ are already
-landed. "Value" = how broadly a reflection user would reach for it — each gap's
+load-bearing for the object-mapping consumer. The **Status** column tracks what's
+landed this effort: ✅ done, ◑ partial (core landed, deeper decoding pending), ▢
+not started. "Value" = how broadly a reflection user would reach for it — each gap's
 detailed subsection below opens with a concrete **Use case** that justifies its
 rating (High = common, mapper/tooling staples; Med = useful for specific tooling
 or robustness; Low = narrow niches).
 
-| # | Gap | Value | Effort | ABI location |
-|---|-----|:-----:|:------:|--------------|
-| 5 | **Safe value-witness ops + instance allocation / set-by-offset (promote Jsum's helpers)** | **High (Jsum)** | M | `ValueWitnessTable.h:132-310`; `swift_allocObject`/`swift_allocBox`/`swift_projectBox` |
-| 2 | Dynamic cast (`swift_dynamicCast` family) | High (Jsum) | S | `Runtime/Casting.h:40-202` |
-| 3 | Associated types & associated conformances | High | M | `Runtime/Metadata.h:387-424` |
-| 6 | Class metadata flags: actor / default-actor / vtable / override-table / resilient-superclass-ref-kind | High | S | `MetadataValues.h:1968-2007` |
-| 1 | General demangler + public type-by-name ergonomics (*core resolver already exists*) | Med | S | `SwiftDemangle.h` / `Demangling/Demangle.h` (resolver: `TypeMetadata.swift:141`) |
-| 4 | ReflectionMirror field/child enumeration (**read-only**; wrap-primary) | Med | M | `Runtime/Reflection.h`, `swift_reflectAny` |
-| 7 | Async/throws/Sendable/typed-throws/global-actor function metadata | High | M | `MetadataValues.h:1166-1170, 1289-1348`; `Metadata.h:1529-1708` |
-| 8 | Noncopyable (`~Copyable`)/`~Escapable` & invertible protocols | High | M | `ABI/InvertibleProtocols.h`, `MetadataValues.h:177-178` |
-| 9 | Generic metadata instantiation ergonomics — *arg-corruption crash **fixed** (`09de17d`); buffer-ownership / witness-count hardening remains* | Med | M | `Runtime/Metadata.h:276-341` |
-| 10 | Full generic requirement decoding (sameConformance / layout / pack-shape / value params) | Med | M | `GenericContext.h:120-336`, `MetadataValues.h:2220-2231` |
-| 11 | Variadic generics: pack-shape & same-shape classes | Med | M | `GenericContext.h:264-304` |
-| 12 | Opaque type resolution (underlying-type realization) | Med | M | `Metadata.h:3396-3475` |
-| 13 | Layout-string decoding from type context descriptors | Med | M | `MetadataValues.h:1961-1962, 2053-2055` |
-| 14 | Distributed actors & accessible-function records | Med | L | `Metadata.h:5332-5358`, `Runtime/AccessibleFunction.h` |
-| 15 | Dynamic replacement records | Low | M | `Metadata.h:5231-5330`, `Runtime/FunctionReplacement.h` |
-| 16 | Extended existential type shapes | Low | L | `Metadata.h:2104-2350`, `2449-2493` |
+| # | Status | Gap | Value | Effort | ABI location |
+|---|:------:|-----|:-----:|:------:|--------------|
+| 5 | ✅ | Safe value-witness ops + instance allocation / set-by-offset (promote Jsum's helpers) | High (Jsum) | M | `ValueWitnessTable.h:132-310`; `swift_allocObject`/`swift_allocBox`/`swift_projectBox` |
+| 2 | ✅ | Dynamic cast (`swift_dynamicCast` family) | High (Jsum) | S | `Runtime/Casting.h:40-202` |
+| 3 | ◑ | Associated **types** ✅; associated **conformances** pending | High | M | `Runtime/Metadata.h:387-424` |
+| 6 | ✅ | Class metadata flags: actor / default-actor / vtable / override-table / resilient-superclass-ref-kind | High | S | `MetadataValues.h:1968-2007` |
+| 1 | ✅ | General demangler + public type-by-name ergonomics (*core resolver already existed*) | Med | S | `SwiftDemangle.h` / `Demangling/Demangle.h` (resolver: `TypeMetadata.swift:141`) |
+| 4 | ✅ | ReflectionMirror field/child enumeration (**read-only**; `children(of:)`) | Med | M | `Runtime/Reflection.h`, `swift_reflectAny` |
+| 7 | ◑ | Function **flags** ✅ (async/throws/Sendable/global-actor); global-actor type & typed-throws *trailing types* pending | High | M | `MetadataValues.h:1166-1170, 1289-1348`; `Metadata.h:1529-1708` |
+| 8 | ◑ | `~Copyable`/`~Escapable` **value-witness flags** ✅; invertible-protocol-set records pending | High | M | `ABI/InvertibleProtocols.h`, `MetadataValues.h:177-178` |
+| 9 | ◑ | Generic metadata instantiation — arg-corruption crash **fixed** (`09de17d`); buffer-ownership / witness-count hardening pending | Med | M | `Runtime/Metadata.h:276-341` |
+| 10 | ◑ | Generic param/requirement **kinds** ✅ (typePack/value, sameShape/invertedProtocols); new-kind *payload* decoding pending | Med | M | `GenericContext.h:120-336`, `MetadataValues.h:2220-2231` |
+| 11 | ▢ | Variadic generics: pack-shape & same-shape classes | Med | M | `GenericContext.h:264-304` |
+| 12 | ▢ | Opaque type resolution (underlying-type realization) | Med | M | `Metadata.h:3396-3475` |
+| 13 | ▢ | Layout-string decoding from type context descriptors | Med | M | `MetadataValues.h:1961-1962, 2053-2055` |
+| 14 | ▢ | Distributed actors & accessible-function records | Med | L | `Metadata.h:5332-5358`, `Runtime/AccessibleFunction.h` |
+| 15 | ▢ | Dynamic replacement records | Low | M | `Metadata.h:5231-5330`, `Runtime/FunctionReplacement.h` |
+| 16 | ▢ | Extended existential type shapes | Low | L | `Metadata.h:2104-2350`, `2449-2493` |
 
 ### 1. General demangler + public type-by-name ergonomics — Value: Med, Effort: S
 
