@@ -115,6 +115,17 @@ enum ClassMetadataTests {
     XCTAssert(typeArraysEquals(resilientMetadata.genericTypes, [String.self]))
     XCTAssertNotNil(resilientMetadata.superclassType)
     XCTAssert(resilientMetadata.superclassType! == JSONEncoder.self)
+
+    // Regression: the resilient-superclass reference kind is a 3-bit field at
+    // bit 9 and must be shifted, not just masked. Boat3's superclass
+    // (JSONEncoder) lives in Foundation, so it is referenced indirectly;
+    // reading the kind used to trap on a force-unwrapped nil before the shift.
+    let resilientDescriptor = resilientMetadata.descriptor!
+    XCTAssertTrue(resilientDescriptor.typeFlags.classHasResilientSuperclass)
+    XCTAssertEqual(
+      resilientDescriptor.typeFlags.resilientSuperclassRefKind,
+      .indirectTypeDescriptor
+    )
   }
   
   #if canImport(ObjectiveC)

@@ -317,7 +317,12 @@ public struct TypeContextDescriptorFlags {
   
   /// The resilient superclass type reference kind.
   public var resilientSuperclassRefKind: TypeReferenceKind {
-    TypeReferenceKind(rawValue: UInt16(bits) & 0xE00)!
+    // The reference kind occupies a 3-bit field starting at bit 9, so it must
+    // be shifted down after masking — without the shift, any non-direct kind
+    // (e.g. the indirect reference used for a cross-module resilient
+    // superclass) produces a value like 0x200 that is not a valid
+    // TypeReferenceKind raw value and traps the force-unwrap.
+    TypeReferenceKind(rawValue: UInt16(bits & (0x7 << 9)) >> 9)!
   }
   
   /// Whether or not this class has any immediate members negative.
