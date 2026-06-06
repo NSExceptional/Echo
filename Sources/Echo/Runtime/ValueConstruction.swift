@@ -217,3 +217,138 @@ extension StructMetadata {
     return existential.toAny
   }
 }
+
+//===----------------------------------------------------------------------===//
+// Tuple construction
+//===----------------------------------------------------------------------===//
+
+extension TupleMetadata {
+  /// Creates a tuple of this type, initializing each element from `elements`
+  /// (in positional order). Each value must already be of the corresponding
+  /// element's type. Excess values, or values beyond the tuple's arity, are
+  /// ignored.
+  /// - Parameter elements: The value for each tuple element, in order.
+  /// - Returns: The newly constructed tuple, boxed as `Any`.
+  public func createInstance(elements values: [Any]) -> Any {
+    var existential = AnyExistentialContainer(metadata: self)
+    let base = existential.mutableValueBuffer()
+
+    for (element, value) in zip(elements, values) {
+      withValuePointer(of: value) { valuePointer in
+        element.metadata.vwt.initializeWithCopy(
+          base + element.offset,
+          valuePointer.mutable
+        )
+      }
+    }
+
+    return existential.toAny
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Class construction
+//===----------------------------------------------------------------------===//
+
+extension ClassMetadata {
+  /// The byte offset and type metadata of the stored property named `key`,
+  /// searching this class and its Swift superclasses.
+  func storedProperty(forKey key: String) -> (offset: Int, type: Metadata)? {
+    if let offset = fieldOffset(forKey: key), let type = fieldType(forKey: key) {
+      return (offset, type)
+    }
+
+    if let superclass = superclassMetadata, superclass.isSwiftClass {
+      return superclass.storedProperty(forKey: key)
+    }
+
+    return nil
+  }
+
+  /// Allocates and initializes an instance of this class, setting each stored
+  /// property from `fields` (keyed by the property's declared name, including
+  /// inherited Swift stored properties).
+  ///
+  /// As with the struct variant, values must already be of the property's type
+  /// and are copied in via the value witnesses. Properties absent from `fields`
+  /// remain zero-initialized. This is a low-level building block: it does not
+  /// run the class's designated initializer, so types relying on `init` side
+  /// effects should not be created this way.
+  /// - Parameter fields: The value for each stored property, keyed by name.
+  /// - Returns: The newly allocated instance.
+  public func createInstance(fields: [String: Any]) -> AnyObject {
+    let object = swift_allocObject(
+      for: self,
+      size: instanceSize,
+      alignment: instanceAlignmentMask
+    ).mutable
+
+    for (key, value) in fields {
+      guard let (offset, type) = storedProperty(forKey: key) else {
+        continue
+      }
+
+      withValuePointer(of: value) { valuePointer in
+        // swift_allocObject zero-fills the instance, so the field is
+        // uninitialized storage — initialize rather than assign.
+        type.vwt.initializeWithCopy(object + offset, valuePointer.mutable)
+      }
+    }
+
+    return Unmanaged<AnyObject>.fromOpaque(object).takeRetainedValue()
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// In-place mutation by name
+//===----------------------------------------------------------------------===//
+
+extension TypeMetadata {
+  /// Overwrites the stored property named `key` in the instance at `instance`
+  /// with `value`.
+  ///
+  /// Unlike construction, this *assigns* over an already-initialized field —
+  /// the previous value is destroyed (e.g. released) before the new one is
+  /// copied in. `value` must be of the property's type. No-op if there is no
+  /// such stored property.
+  /// - Parameters:
+  ///   - value: The new value, of the property's type.
+  ///   - key: The stored property's declared name.
+  ///   - instance: A pointer to a valid instance of this type.
+  public func set(
+    _ value: Any,
+    forKey key: String,
+    in instance: UnsafeMutableRawPointer
+  ) {
+    guard let offset = fieldOffset(forKey: key),
+          let type = fieldType(forKey: key) else {
+      return
+    }
+
+    withValuePointer(of: value) { valuePointer in
+      type.vwt.assignWithCopy(instance + offset, valuePointer.mutable)
+    }
+  }
+}
+
+extension ClassMetadata {
+  /// Overwrites the stored property named `key` (searching this class and its
+  /// Swift superclasses) in the instance at `instance` with `value`.
+  /// - Parameters:
+  ///   - value: The new value, of the property's type.
+  ///   - key: The stored property's declared name.
+  ///   - instance: A pointer to a valid instance of this class.
+  public func set(
+    _ value: Any,
+    forKey key: String,
+    in instance: UnsafeMutableRawPointer
+  ) {
+    guard let (offset, type) = storedProperty(forKey: key) else {
+      return
+    }
+
+    withValuePointer(of: value) { valuePointer in
+      type.vwt.assignWithCopy(instance + offset, valuePointer.mutable)
+    }
+  }
+}
