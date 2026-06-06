@@ -104,19 +104,27 @@ buffer-population bug, and key paths are almost entirely commented out.
 
 ## Gaps
 
-> **Status (implemented this effort).** ✅ **#5** safe value construction/mutation
-> (struct/class/tuple `createInstance`, `set(_:forKey:)`, `value(forKey:)`,
-> lifetime-safe `withValuePointer`), ✅ **#2** `dynamicCast(_:to:)`, ✅ **#3**
-> associated-type witness resolution, ✅ **#4** `children(of:)` ReflectionMirror
-> wrap, ✅ **#6/#7/#8** the missing class/function/value-witness flag accessors
-> (actor, async/throws/Sendable/global-actor, `~Copyable`), ✅ **#1** general
-> `demangle(_:)` + `type(named:)`, ✅ **#10** variadic/value generic param &
-> requirement kinds. Plus crash fixes: `__swift5_types` decode,
+> **Status.** **Implemented (✅):** #1 demangler/`type(named:)`, #2
+> `dynamicCast(_:to:)`, #3 associated types **and** conformances, #4
+> `children(of:)` ReflectionMirror wrap, #5 value construction/mutation/read, #6
+> class/actor flags, #7 function flags **and** trailing types (global-actor /
+> typed-throws / extended flags), #8 `~Copyable` value-witness flags **and**
+> function inverted-protocol set, #9 (crash fixed + verified leak-free), #10
+> generic param/requirement kinds + `sameShape` payload, #11 variadic-generic
+> pack shapes, #12 opaque-type realization, #16 extended (generalized)
+> existential metadata. **Plus crash fixes:** `__swift5_types` decode,
 > `resilientSuperclassRefKind`, `MetadataAccessFunction` arg corruption, generic
-> param/requirement kind force-unwraps, and the `container(for:)` lifetime
-> footgun. **Remaining (lower priority / deep):** #12 opaque-type realization,
-> #13 layout strings, #14 distributed/accessible functions, #15 dynamic
-> replacement, #16 extended existentials, and #9's buffer-ownership polish.
+> param/requirement force-unwraps, the `container(for:)` lifetime footgun, and
+> `any P<T>` "unknown kind 775".
+>
+> **Deferred (▢), by design:** #13 layout strings and #14
+> distributed/accessible-functions (skipped by request); #15 dynamic replacement
+> (same startup section-registration infrastructure as #14 — process-wide
+> load-time risk for the lowest-value gap, so deferred with it). A couple of
+> *rare, untestable* payloads are also left unsurfaced: the `sameConformance`
+> generic-requirement arm (#10) and the generic-context conditional
+> inverted-protocol records (#8) — both decode safely as "kind known", just
+> without typed payload accessors.
 
 Ordered by Value (descending), then Effort (ascending). **(Jsum)** marks gaps
 load-bearing for the object-mapping consumer. The **Status** column tracks what's
@@ -130,20 +138,20 @@ or robustness; Low = narrow niches).
 |---|:------:|-----|:-----:|:------:|--------------|
 | 5 | ✅ | Safe value-witness ops + instance allocation / set-by-offset (promote Jsum's helpers) | High (Jsum) | M | `ValueWitnessTable.h:132-310`; `swift_allocObject`/`swift_allocBox`/`swift_projectBox` |
 | 2 | ✅ | Dynamic cast (`swift_dynamicCast` family) | High (Jsum) | S | `Runtime/Casting.h:40-202` |
-| 3 | ◑ | Associated **types** ✅; associated **conformances** pending | High | M | `Runtime/Metadata.h:387-424` |
+| 3 | ✅ | Associated **types and conformances** (witness resolution) | High | M | `Runtime/Metadata.h:387-424` |
 | 6 | ✅ | Class metadata flags: actor / default-actor / vtable / override-table / resilient-superclass-ref-kind | High | S | `MetadataValues.h:1968-2007` |
 | 1 | ✅ | General demangler + public type-by-name ergonomics (*core resolver already existed*) | Med | S | `SwiftDemangle.h` / `Demangling/Demangle.h` (resolver: `TypeMetadata.swift:141`) |
 | 4 | ✅ | ReflectionMirror field/child enumeration (**read-only**; `children(of:)`) | Med | M | `Runtime/Reflection.h`, `swift_reflectAny` |
-| 7 | ◑ | Function **flags** ✅ (async/throws/Sendable/global-actor); global-actor type & typed-throws *trailing types* pending | High | M | `MetadataValues.h:1166-1170, 1289-1348`; `Metadata.h:1529-1708` |
-| 8 | ◑ | `~Copyable`/`~Escapable` **value-witness flags** ✅; invertible-protocol-set records pending | High | M | `ABI/InvertibleProtocols.h`, `MetadataValues.h:177-178` |
-| 9 | ◑ | Generic metadata instantiation — arg-corruption crash **fixed** (`09de17d`); buffer-ownership / witness-count hardening pending | Med | M | `Runtime/Metadata.h:276-341` |
-| 10 | ◑ | Generic param/requirement **kinds** ✅ (typePack/value, sameShape/invertedProtocols); new-kind *payload* decoding pending | Med | M | `GenericContext.h:120-336`, `MetadataValues.h:2220-2231` |
-| 11 | ▢ | Variadic generics: pack-shape & same-shape classes | Med | M | `GenericContext.h:264-304` |
-| 12 | ▢ | Opaque type resolution (underlying-type realization) | Med | M | `Metadata.h:3396-3475` |
-| 13 | ▢ | Layout-string decoding from type context descriptors | Med | M | `MetadataValues.h:1961-1962, 2053-2055` |
-| 14 | ▢ | Distributed actors & accessible-function records | Med | L | `Metadata.h:5332-5358`, `Runtime/AccessibleFunction.h` |
-| 15 | ▢ | Dynamic replacement records | Low | M | `Metadata.h:5231-5330`, `Runtime/FunctionReplacement.h` |
-| 16 | ▢ | Extended existential type shapes | Low | L | `Metadata.h:2104-2350`, `2449-2493` |
+| 7 | ✅ | Function flags **+ trailing types** (global-actor type, extended flags, typed-throws error) | High | M | `MetadataValues.h:1166-1170, 1289-1348`; `Metadata.h:1529-1708` |
+| 8 | ✅ | `~Copyable`/`~Escapable` value-witness flags **+ function inverted-protocol set** (generic-context conditional records ◑) | High | M | `ABI/InvertibleProtocols.h`, `MetadataValues.h:177-178` |
+| 9 | ✅ | Generic metadata instantiation — arg-corruption crash **fixed** (`09de17d`); buffer paths verified leak-free | Med | M | `Runtime/Metadata.h:276-341` |
+| 10 | ✅ | Generic param/requirement **kinds + `sameShape` payload** (rare `sameConformance` payload ◑) | Med | M | `GenericContext.h:120-336`, `MetadataValues.h:2220-2231` |
+| 11 | ✅ | Variadic generics: pack-shape & same-shape descriptors | Med | M | `GenericContext.h:264-304` |
+| 12 | ✅ | Opaque type underlying-type realization | Med | M | `Metadata.h:3396-3475` |
+| 16 | ✅ | Extended (generalized) existential metadata (`any P<T>`) — also a crash fix | Low | L | `Metadata.h:2104-2350`, `2449-2493` |
+| 13 | ▢ | Layout-string decoding from type context descriptors *(deferred by request)* | Med | M | `MetadataValues.h:1961-1962, 2053-2055` |
+| 14 | ▢ | Distributed actors & accessible-function records *(deferred by request)* | Med | L | `Metadata.h:5332-5358`, `Runtime/AccessibleFunction.h` |
+| 15 | ▢ | Dynamic replacement records *(deferred: needs #14-class startup section registration)* | Low | M | `Metadata.h:5231-5330`, `Runtime/FunctionReplacement.h` |
 
 ### 1. General demangler + public type-by-name ergonomics — Value: Med, Effort: S
 
