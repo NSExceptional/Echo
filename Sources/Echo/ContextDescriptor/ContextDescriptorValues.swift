@@ -125,7 +125,14 @@ extension GenericMetadataPattern {
 
 /// A discriminator to determine what type of parameter a generic parameter is.
 public enum GenericParameterKind: UInt8 {
+  /// An ordinary type parameter, e.g. `T`.
   case type = 0x0
+
+  /// A type parameter pack, e.g. `each T` (variadic generics).
+  case typePack = 0x1
+
+  /// A value type parameter, e.g. `let N: Int` (integer generic parameters).
+  case value = 0x2
 }
 
 /// The flags that describe a generic parameter.
@@ -157,6 +164,15 @@ public enum GenericRequirementKind: UInt8 {
   case sameType = 0x1
   case baseClass = 0x2
   case sameConformance = 0x3
+
+  /// A same-shape requirement between two generic parameter packs (variadic
+  /// generics).
+  case sameShape = 0x4
+
+  /// A requirement listing the invertible-protocol checks (e.g. `Copyable`,
+  /// `Escapable`) that are *inverted* for a parameter — an "anti-requirement".
+  case invertedProtocols = 0x5
+
   case layout = 0x1F
 }
 
